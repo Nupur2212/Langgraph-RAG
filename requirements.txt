@@ -1,0 +1,9 @@
+gTTS
+pydub
+pymupdf
+langchain
+chromadb
+python-pptx
+BeautifulSoup4
+google-generativeai
+langgraph
