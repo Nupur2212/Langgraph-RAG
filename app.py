@@ -1,10 +1,3 @@
-#  Personalized Vacation Planner:
-
-#     Build an agent that can gather user preferences (location, budget, interests), retrieve relevant information from a knowledge base, and suggest personalized vacation plans. 
-
-# Use LangGraph to create a multi-agent workflow, with different agents responsible for gathering information, processing data, and generating suggestions. 
-# Implement a stateful chatbot that switches between different graph nodes, such as gathering user requirements and generating a tailored prompt. 
-
 import os
 from gtts import gTTS
 from pydub import AudioSegment
