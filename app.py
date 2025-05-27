@@ -20,7 +20,7 @@ from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AI
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
-apikey='AIzaSyBbZLBkCdbrpSGH6lSVasg_oWudIzPX5lI'
+
 
 def load_files(folder_path):
     print(os.listdir(folder_path))
@@ -78,7 +78,7 @@ def split_text_recursively(text, max_length=500, chunk_overlap=20):
 def chunks(extracted_data):
     text_chunks = []
     for doc in extracted_data:
-        chunks = split_text_recursively(doc.page_content, max_length=500, chunk_overlap=20)
+        chunks = split_text_recursively(doc.page_content, max_length=100, chunk_overlap=20)
         for chunk in chunks:
             text_chunks.append(Document(page_content=chunk, metadata=doc.metadata))
     client = chromadb.PersistentClient(path='embeddings/gemini')
@@ -138,18 +138,41 @@ google_ef,collection=chunks(documents)
 
 class AgentState(TypedDict):
     messages: List[BaseMessage]
-    documents: List[Document]
+    documents: List[Document]=[]
     # sources:List[str]
     on_topic: str
     rephrased_question: str
     proceed_to_generate: bool
-    rephrase_count: int
+    rephrase_count: int=0
     question: HumanMessage
-    collection
+    # db: 
 
 def retrievenode(state:AgentState)->AgentState:
+    global collection
+    if "messages" not in state or state["messages"] is None:
+        state['rephrase_count']=0
+        state["messages"] = []
+
+    if state["question"] not in state["messages"]:
+        state["messages"].append(state["question"])
+
+    if len(state["messages"]) > 1:
+        conversation = state["messages"][:-1]
+        current_question = state["question"].content
+        messages = [
+            SystemMessage(
+                content="You are a helpful assistant that rephrases the user's question to be a standalone question optimized for retrieval."
+            )
+        ]
+        messages.extend(conversation)
+        messages.append(HumanMessage(content=current_question))
+
     query=state['question'].content
-    results, sources = find_relevant_context(query, state['collection'], 3)
+    results, sources = find_relevant_context(query, collection, 3)
+    if "documents" not in state or state["documents"] is []:
+        print("in")
+        state['documents']=[]
+    print(state)
     for r,s in zip(results,sources):
         state['documents'].append(Document(page_content=r,metadata=s))
     return state
@@ -195,11 +218,12 @@ def proceed_router(state: AgentState):
     rephrase_count = state.get("rephrase_count", 0)
     if state.get("proceed_to_generate", False):
         print("Routing to generate_answer")
-        return "generate_answer"
+        return "generate answer"
     elif rephrase_count >= 2:
         print("Maximum rephrase attempts reached. Cannot find relevant documents.")
-        return "cannot_answer"
+        return "cannot answer"
     else:
+        state['rephrase_count']+=1
         return "continue"
     
 def generatenode(state:AgentState)->AgentState:
@@ -224,5 +248,21 @@ def generatenode(state:AgentState)->AgentState:
     print(f"generate_answer: Generated response: {answer_text}")
     return state
 
-from langgraph.graph import StateGraph 
+from langgraph.graph import StateGraph, END
+
 graph=StateGraph(AgentState)
+
+graph.add_node('retrieve',retrievenode)
+graph.add_node('generate',generatenode)
+
+graph.set_entry_point('retrieve')
+
+graph.add_conditional_edges('retrieve',proceed_router,{"generate answer":'generate',"cannot answer":END,"continue":'retrieve'})
+
+graph.add_edge('retrieve','generate')
+graph.add_edge('generate',END)
+
+app=graph.compile()
+
+input_data = {"question": HumanMessage(content="How is Diwali celebrated?")}
+print(app.invoke(input=input_data, config={"configurable": {"thread_id": 1}}))
