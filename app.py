@@ -12,8 +12,10 @@ from typing import TypedDict, List
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
+from dotenv import load_dotenv
 
-
+load_dotenv()
+apikey=os.getenv("GOOGLE_API_KEY")
 
 def load_files(folder_path):
     print(os.listdir(folder_path))
