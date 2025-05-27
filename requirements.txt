@@ -6,3 +6,4 @@ chromadb
 python-pptx
 BeautifulSoup4
 google-generativeai
+langgraph

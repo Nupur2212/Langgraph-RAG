@@ -16,7 +16,7 @@ from pptx import Presentation
 from bs4 import BeautifulSoup
 import google.generativeai as genai
 from typing import TypedDict, List
-from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage
+from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
@@ -106,25 +106,27 @@ def find_relevant_context(query, db, n_result=3):
     escaped_context, source = build_escaped_context(context)
     return escaped_context, source
 
-# def create_prompt_for_gemini(query, context, sources):
-#     prompt = f"""
-#     You are an agent that answers questions using the text from the context below.
-#     Both the question and context is shared with you and you should answer the question on the basis of the context and not hallucinate.
-#     If the context does not have enough information for you, inform about the absence of relevant context as part of your answer.
+def create_prompt_for_gemini(query, context,history):
+    prompt = f"""
+    You are an agent that answers questions using the text from the context below.
+    Both the question and context is shared with you and you should answer the question on the basis of the context and not hallucinate.
+    If the context does not have enough information for you, inform about the absence of relevant context as part of your answer.
 
-#     Context : {context}
+    Context : {context}
 
-#     Question : {query}
+    Question : {query}
 
-#     Answer :
-#     """
-#     return prompt, sources
+    History: {history} <messages of the converstaion with you>
+
+    Answer :
+    """
+    return prompt
 
 
-# def generate_answer_from_gemini(prompt):
-#     model = genai.GenerativeModel('gemini-1.5-pro-latest')
-#     result = model.generate_content(prompt)
-#     return result
+def generate_answer_from_gemini(prompt):
+    model = genai.GenerativeModel('gemini-1.5-pro-latest')
+    result = model.generate_content(prompt)
+    return result
 
 documents=load_files(folder_path=os.getcwd()+'/files')
 print(len(documents))
@@ -187,3 +189,40 @@ def retrieval_grader(state: AgentState):
     state["proceed_to_generate"] = len(relevant_docs) > 0
     print(f"retrieval_grader: proceed_to_generate = {state['proceed_to_generate']}")
     return state
+
+def proceed_router(state: AgentState):
+    print("Entering proceed_router")
+    rephrase_count = state.get("rephrase_count", 0)
+    if state.get("proceed_to_generate", False):
+        print("Routing to generate_answer")
+        return "generate_answer"
+    elif rephrase_count >= 2:
+        print("Maximum rephrase attempts reached. Cannot find relevant documents.")
+        return "cannot_answer"
+    else:
+        return "continue"
+    
+def generatenode(state:AgentState)->AgentState:
+    print("Entering generate_answer")
+    if "messages" not in state or state["messages"] is None:
+        raise ValueError("State must include 'messages' before generating an answer.")
+
+    history = state["messages"]
+    documents = state["documents"]
+    rephrased_question = state["question"]
+
+    prompt= create_prompt_for_gemini(rephrased_question, state['documents'],history)
+    answer_text = generate_answer_from_gemini(prompt)
+
+    # response = rag_chain.invoke(
+    #     {"history": history, "context": documents, "question": rephrased_question}
+    # )
+
+    # generation = response.content.strip()
+
+    state["messages"].append(AIMessage(content=answer_text))
+    print(f"generate_answer: Generated response: {answer_text}")
+    return state
+
+from langgraph.graph import StateGraph 
+graph=StateGraph(AgentState)
